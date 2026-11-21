@@ -710,8 +710,15 @@ def create_app(test_config=None):
                         flash("販売可能・取り置きの間は "
                               + "、".join(locked)
                               + " は変更できません。先に状態を戻してください。")
-                        return redirect(
-                            url_for("device_edit", device_id=device_id))
+                        # Re-render the form with the submitted values
+                        # instead of redirecting, so the rest of what
+                        # was typed (a long note, say) is not lost.
+                        shown = dict(device)
+                        shown.update(values)
+                        return render_template(
+                            "form.html", device=shown, kinds=KINDS,
+                            ranks=RANKS, statuses=STATUSES,
+                            restrictions=NETWORK_RESTRICTION)
                 changed = [f for f in DEVICE_FIELDS
                            if (device[f] if device[f] is not None else None)
                            != values[f]]
