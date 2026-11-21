@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}個体 #{{ device.id }}{% endblock %}
+{% block body %}
+<h1>#{{ device.id }} {{ device.maker }} {{ device.model }}</h1>
+<p><a href="{{ url_for('device_edit', device_id=device.id) }}">編集する</a></p>
+<table>
+  <tr><th>種別</th><td>{{ kinds[device.kind] }}</td><th>状態</th><td>{{ statuses[device.status] }}</td></tr>
+  <tr><th>シリアル番号</th><td>{{ device.serial_number }}</td><th>状態ランク</th><td>{{ device.condition_rank }}</td></tr>
+  <tr><th>IMEI</th><td>{{ imei_view if imei_view else '（記録なし）' }}{% if device.imei and not g.user.is_admin %} ※全文は管理者のみ{% endif %}</td>
+      <th>ネットワーク利用制限</th><td>{{ device.network_restriction }}</td></tr>
+  <tr><th>容量 / メモリ / 色</th><td>{{ device.storage }} / {{ device.ram }} / {{ device.color }}</td>
+      <th>バッテリー最大容量</th><td>{% if device.battery_health is not none %}{{ device.battery_health }} %{% endif %}</td></tr>
+  <tr><th>SIM ロック等</th><td>{{ device.sim_status }}</td><th>アクティベーションロック</th><td>{{ device.activation_lock }}</td></tr>
+  <tr><th>CPU / GPU</th><td>{{ device.cpu }} / {{ device.gpu }}</td><th>OS</th><td>{{ device.os_name }}</td></tr>
+  <tr><th>バッテリーサイクル</th><td>{{ device.battery_cycles if device.battery_cycles is not none else '' }}</td><th></th><td></td></tr>
+  <tr><th>外観メモ</th><td colspan="3">{{ device.cosmetic_damage }}</td></tr>
+  <tr><th>付属品</th><td colspan="3">{{ device.accessories }}</td></tr>
+  <tr><th>仕入れ</th><td colspan="3">{{ device.purchase_date }} / {{ device.purchase_source }} / {% if device.purchase_price is not none %}{{ "{:,}".format(device.purchase_price) }} 円{% endif %}</td></tr>
+  <tr><th>販売予定価格</th><td>{% if device.planned_price is not none %}{{ "{:,}".format(device.planned_price) }} 円{% endif %}</td>
+      <th>実売</th><td>{{ device.sale_date }} / {{ device.sale_channel }} / {% if device.sale_price is not none %}{{ "{:,}".format(device.sale_price) }} 円{% endif %}</td></tr>
+  <tr><th>保証期間</th><td>{% if device.warranty_days is not none %}{{ device.warranty_days }} 日{% endif %}</td>
+      <th>登録 / 更新</th><td>{{ device.created_at }} / {{ device.updated_at }}</td></tr>
+  <tr><th>備考</th><td colspan="3">{{ device.notes }}</td></tr>
+  <tr><th>検査</th><td>{{ inspection.done }}/{{ inspection.total }} 項目{{ '（完了）' if inspection.complete else '' }}{% if inspection.fails %} 不合格: {{ inspection.fails|join(', ') }}{% endif %}
+      <a href="{{ url_for('device_inspection', device_id=device.id) }}">チェックリストを開く</a></td>
+      <th>データ消去</th><td>{{ device.data_erasure_at }} {{ device.data_erasure_method }}{% if erasure_by_name %}（実施者: {{ erasure_by_name }}）{% endif %}</td></tr>
+</table>
+
+<h2>経費と粗利</h2>
+<table>
+<tr><th>日付</th><th>種類</th><th>金額</th><th>備考</th><th></th></tr>
+{% for e in expenses %}
+<tr><td>{{ e.expense_date }}</td><td>{{ expense_categories[e.category] }}</td>
+<td>{{ "{:,}".format(e.amount) }} 円</td><td>{{ e.note }}</td>
+<td><form method="post" action="{{ url_for('expense_delete', device_id=device.id, expense_id=e.id) }}" style="display:inline">
+<button type="submit" style="margin:0">削除</button></form></td></tr>
+{% else %}
+<tr><td colspan="5">経費はまだありません。</td></tr>
+{% endfor %}
+<tr><th colspan="2">経費合計</th><td><strong>{{ "{:,}".format(expense_total) }} 円</strong></td><td colspan="2"></td></tr>
+<tr><th colspan="2">粗利（実売価格 − 仕入れ価格 − 経費）</th>
+<td colspan="3">{% if profit is not none %}<strong>{{ "{:,}".format(profit) }} 円</strong>{% else %}―（実売価格か仕入れ価格が未記録）{% endif %}</td></tr>
+<tr><th colspan="2">予定粗利（販売予定価格で計算）</th>
+<td colspan="3">{% if planned is not none %}{{ "{:,}".format(planned) }} 円{% else %}―{% endif %}</td></tr>
+</table>
+<form method="post" action="{{ url_for('expense_add', device_id=device.id) }}" class="row">
+  <div><label>日付</label><input name="expense_date" type="date"></div>
+  <div><label>種類</label><select name="category">{% for k, label in expense_categories.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></div>
+  <div><label>金額（円）</label><input name="amount" type="number" min="0" required></div>
+  <div><label>備考</label><input name="note"></div>
+  <div><button type="submit">経費を追加</button></div>
+</form>
+
+<h2>状態の変更</h2>
+{% if next_statuses %}
+<form method="post" action="{{ url_for('device_status', device_id=device.id) }}">
+  <label>次の状態</label>
+  <select name="to_status">
+    {% for n in next_statuses %}
+    <option value="{{ n.key }}">{{ n.label }}{% if n.needs_reason %}（理由が必要）{% endif %}{% if n.blockers %}（不足: {{ n.blockers|join(' / ') }}）{% endif %}</option>
+    {% endfor %}
+  </select>
+  <label>理由（戻す・飛ばす・返品・処分のときに必要）</label>
+  <input name="reason">
+  <button type="submit">状態を変更</button>
+</form>
+{% else %}
+<p>この状態からは変更できません（処分は最終状態です）。</p>
+{% endif %}
+
+<h2>履歴</h2>
+<table>
+<tr><th>日時</th><th>操作</th><th>内容</th><th>ユーザー</th></tr>
+{% for h in history %}
+<tr><td>{{ h.created_at }}</td><td>{{ h.action }}</td><td>{{ h.detail }}</td><td>{{ h.username or '' }}</td></tr>
+{% else %}
+<tr><td colspan="4">履歴がありません。</td></tr>
+{% endfor %}
+</table>
+{% endblock %}

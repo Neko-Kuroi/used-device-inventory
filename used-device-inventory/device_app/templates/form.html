@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}{{ "編集" if device else "新規登録" }}{% endblock %}
+{% block body %}
+<h1>{{ "個体の編集" if device else "個体の新規登録" }}</h1>
+{% macro val(name) %}{{ device[name] if device and device[name] is not none else '' }}{% endmacro %}
+<form method="post">
+  <div class="row">
+    <div><label>種別 *</label>
+      <select name="kind">{% for k, label in kinds.items() %}<option value="{{ k }}" {% if device and device.kind == k %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div><label>状態</label>
+      <p>{{ statuses[device.status] if device else '仕入済み（登録時はここで固定です）' }}<br>※状態の変更は、登録後に詳細画面から行います</p></div>
+    <div><label>メーカー</label><input name="maker" value="{{ val('maker') }}"></div>
+    <div><label>機種名</label><input name="model" value="{{ val('model') }}"></div>
+    <div><label>シリアル番号 *</label><input name="serial_number" value="{{ val('serial_number') }}" required></div>
+    <div><label>状態ランク</label>
+      <select name="condition_rank">{% for r in ranks %}<option value="{{ r }}" {% if device and device.condition_rank == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select></div>
+  </div>
+
+  <h2>スマートフォン固有</h2>
+  <div class="row">
+    <div><label>IMEI（判別できない場合は空欄）{% if device and device.imei and not g.user.is_admin %} ※全文は管理者のみ表示{% endif %}</label>
+      <input name="imei" value="{% if device and device.imei %}{{ device.imei if g.user.is_admin else '' }}{% endif %}" placeholder="15桁の数字"></div>
+    <div><label>ネットワーク利用制限</label>
+      <select name="network_restriction">{% for r in restrictions %}<option value="{{ r }}" {% if device and device.network_restriction == r %}selected{% endif %}>{{ r if r else '（未選択）' }}</option>{% endfor %}</select></div>
+    <div><label>容量</label><input name="storage" value="{{ val('storage') }}"></div>
+    <div><label>メモリ</label><input name="ram" value="{{ val('ram') }}"></div>
+    <div><label>色</label><input name="color" value="{{ val('color') }}"></div>
+    <div><label>バッテリー最大容量 %</label><input name="battery_health" type="number" min="0" max="100" value="{{ val('battery_health') }}"></div>
+    <div><label>SIM ロック / 利用制限メモ</label><input name="sim_status" value="{{ val('sim_status') }}"></div>
+    <div><label>アクティベーションロック</label><input name="activation_lock" value="{{ val('activation_lock') }}"></div>
+  </div>
+
+  <h2>パソコン固有</h2>
+  <div class="row">
+    <div><label>CPU</label><input name="cpu" value="{{ val('cpu') }}"></div>
+    <div><label>GPU</label><input name="gpu" value="{{ val('gpu') }}"></div>
+    <div><label>OS</label><input name="os_name" value="{{ val('os_name') }}"></div>
+    <div><label>バッテリーサイクル回数</label><input name="battery_cycles" type="number" min="0" value="{{ val('battery_cycles') }}"></div>
+  </div>
+
+  <h2>状態・付属品</h2>
+  <label>外観メモ（傷・凹みの場所と程度）</label>
+  <textarea name="cosmetic_damage" rows="3">{{ val('cosmetic_damage') }}</textarea>
+  <label>付属品（箱、ケーブル、充電器など）</label>
+  <textarea name="accessories" rows="2">{{ val('accessories') }}</textarea>
+
+  <h2>検査・データ消去</h2>
+  <p>「販売可能」へ進むには、検査の完了とデータ消去の記録の両方が必要です。検査の完了は、詳細画面のチェックリストで全項目が済んだときに自動で決まります（ここでは変えられません）。現在の状態: {{ '完了' if device and device.inspection_done else '未完了' }}</p>
+  <div class="row">
+    <div><label>データ消去日</label><input name="data_erasure_at" type="date" value="{{ val('data_erasure_at') }}"></div>
+    <div><label>データ消去の方法</label><input name="data_erasure_method" value="{{ val('data_erasure_method') }}" placeholder="例: 本体の初期化、専用ソフトで消去"></div>
+  </div>
+
+  <h2>金額・販売</h2>
+  <div class="row">
+    <div><label>仕入れ日</label><input name="purchase_date" type="date" value="{{ val('purchase_date') }}"></div>
+    <div><label>仕入れ先</label><input name="purchase_source" value="{{ val('purchase_source') }}"></div>
+    <div><label>仕入れ価格（円）</label><input name="purchase_price" type="number" min="0" value="{{ val('purchase_price') }}"></div>
+    <div><label>販売予定価格（円）</label><input name="planned_price" type="number" min="0" value="{{ val('planned_price') }}"></div>
+    <div><label>販売日</label><input name="sale_date" type="date" value="{{ val('sale_date') }}"></div>
+    <div><label>販売先・経路</label><input name="sale_channel" value="{{ val('sale_channel') }}"></div>
+    <div><label>実売価格（円）</label><input name="sale_price" type="number" min="0" value="{{ val('sale_price') }}"></div>
+    <div><label>保証期間（日）</label><input name="warranty_days" type="number" min="0" value="{{ val('warranty_days') }}"></div>
+  </div>
+
+  <label>備考</label>
+  <textarea name="notes" rows="3">{{ val('notes') }}</textarea>
+  <button type="submit">{{ "保存" if device else "登録" }}</button>
+</form>
+{% endblock %}

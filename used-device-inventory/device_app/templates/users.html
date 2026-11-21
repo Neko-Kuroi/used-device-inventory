@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}ユーザー管理{% endblock %}
+{% block body %}
+<h1>ユーザー管理</h1>
+<table>
+<tr><th>ID</th><th>ユーザー名</th><th>管理者</th><th>作成日時</th></tr>
+{% for u in users %}
+<tr><td>{{ u.id }}</td><td>{{ u.username }}</td><td>{{ 'はい' if u.is_admin else '' }}</td><td>{{ u.created_at }}</td></tr>
+{% endfor %}
+</table>
+<h2>ユーザーを追加</h2>
+<form method="post">
+  <label>ユーザー名</label>
+  <input name="username" required>
+  <label>パスワード（8文字以上）</label>
+  <input name="password" type="password" required>
+  <label style="font-weight:normal"><input type="checkbox" name="is_admin" style="width:auto"> 管理者にする（IMEI の全文が見えるようになります）</label>
+  <button type="submit">追加</button>
+</form>
+{% endblock %}

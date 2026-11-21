@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}検査チェックリスト{% endblock %}
+{% block body %}
+<h1>検査チェックリスト: #{{ device.id }} {{ device.maker }} {{ device.model }}</h1>
+<p>種別: {{ kinds[device.kind] }} ／ 進み具合: {{ state.done }}/{{ state.total }} 項目
+{% if state.complete %}／ <strong>検査完了</strong>{% endif %}</p>
+<p>全項目に結果が入り、不合格が1つも無いときに「検査完了」になります。「対象外」は、その個体に無い機能のときに使います。</p>
+<form method="post">
+<table>
+<tr><th>項目</th><th>結果</th><th>メモ</th><th>前回の記録</th></tr>
+{% for key, label in items %}
+{% set row = state.by_key.get(key) %}
+<tr>
+  <td>{{ label }}</td>
+  <td><select name="result_{{ key }}" style="width:auto">
+    <option value="">未実施</option>
+    {% for rk, rl in results.items() %}<option value="{{ rk }}" {% if row and row.result == rk %}selected{% endif %}>{{ rl }}</option>{% endfor %}
+  </select></td>
+  <td><input name="note_{{ key }}" value="{{ row.note if row else '' }}"></td>
+  <td>{% if row %}{{ row.checked_at }}{% endif %}</td>
+</tr>
+{% endfor %}
+</table>
+<button type="submit">検査結果を保存</button>
+</form>
+<p><a href="{{ url_for('device_detail', device_id=device.id) }}">詳細に戻る</a></p>
+{% endblock %}
