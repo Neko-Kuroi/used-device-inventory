@@ -54,6 +54,20 @@ def test_edit_cannot_change_kind_while_ready(admin_client):
     assert row["inspection_done"] == 1
 
 
+def test_locked_edit_keeps_the_typed_input(admin_client):
+    make_ready(admin_client)
+    resp = admin_client.post("/devices/1/edit", data=dict(
+        DEVICE, data_erasure_at="", data_erasure_method="",
+        notes="長く書いた備考テキスト"))
+    body = resp.get_data(as_text=True)
+    assert resp.status_code == 200
+    assert "変更できません" in body
+    assert "長く書いた備考テキスト" in body  # input is not lost
+    row = row_of(admin_client)  # and nothing was saved
+    assert row["notes"] == "テスト個体"
+    assert row["data_erasure_at"] == "2026-11-02"
+
+
 def test_edit_other_fields_still_allowed_while_ready(admin_client):
     make_ready(admin_client)
     admin_client.post("/devices/1/edit",
