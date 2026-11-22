@@ -4,6 +4,7 @@ Phase 1 (foundation): setup/login, device create/edit/list/search, history.
 Flask + standard-library sqlite3 only.
 """
 import os
+import sqlite3
 from functools import wraps
 
 from flask import (Flask, abort, flash, g, redirect, render_template,
@@ -305,8 +306,14 @@ def create_app(test_config=None):
                         return None, f"{field} は数字で入れてください。"
                     if values[field] < 0:
                         return None, f"{field} は0以上で入れてください。"
+            elif field == "imei":
+                # Only the IMEI distinguishes "not recorded" (None)
+                # from an empty value: the checks below (and the IMEI
+                # masking in the views) test it against None. Every
+                # other text field simply keeps "" for "not entered".
+                values[field] = raw if raw else None
             else:
-                values[field] = raw or None if field == "imei" else raw
+                values[field] = raw
         if values["kind"] not in KINDS:
             return None, "種別が正しくありません。"
         if values["condition_rank"] not in RANKS:
@@ -428,7 +435,10 @@ def create_app(test_config=None):
                             ", ".join(DEVICE_FIELDS),
                             ", ".join("?" * len(DEVICE_FIELDS))),
                         [values[f] for f in DEVICE_FIELDS])
-                except Exception:
+                except sqlite3.IntegrityError:
+                    # The only expected failure is the serial number
+                    # being already registered; anything else should
+                    # surface as a real error, not as "duplicate".
                     db.rollback()
                     flash("そのシリアル番号は既に登録されています。")
                 else:
@@ -636,6 +646,19 @@ def create_app(test_config=None):
                   " へは進めません。")
             return redirect(url_for("device_detail", device_id=device_id))
         if target == "ready":
+            # Do not trust the stored inspection_done flag here:
+            # recompute it from the checklist itself and sync the
+            # flag, so a stale flag can never open (or wrongly
+            # close) the gate.
+            db = dbmod.get_db()
+            state = inspection_state(db, device)
+            fresh = 1 if state["complete"] else 0
+            if fresh != device["inspection_done"]:
+                db.execute(
+                    "UPDATE device SET inspection_done = ? WHERE id = ?",
+                    (fresh, device_id))
+                db.commit()
+                device = get_device_or_404(device_id)
             blockers = ready_blockers(device)
             if blockers:
                 flash("販売可能にできません: " + " / ".join(blockers))
@@ -729,7 +752,7 @@ def create_app(test_config=None):
                         " WHERE id = ?".format(
                             ", ".join(f"{f} = ?" for f in DEVICE_FIELDS)),
                         [values[f] for f in DEVICE_FIELDS] + [device_id])
-                except Exception:
+                except sqlite3.IntegrityError:
                     db.rollback()
                     flash("そのシリアル番号は既に登録されています。")
                 else:
@@ -791,7 +814,7 @@ def create_app(test_config=None):
                         (username, generate_password_hash(password), is_admin))
                     db.commit()
                     flash("ユーザーを追加しました。")
-                except Exception:
+                except sqlite3.IntegrityError:
                     db.rollback()
                     flash("そのユーザー名は既に使われています。")
         users = db.execute("SELECT * FROM user ORDER BY id").fetchall()

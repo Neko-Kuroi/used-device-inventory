@@ -170,6 +170,41 @@ def test_search_percent_is_literal(admin_client):
     assert "SN0001" in body and "SN0002" in body
 
 
+def test_ready_gate_recomputes_stale_flag_off(admin_client):
+    # Flag says done, but the checklist itself is empty: the gate
+    # must stay closed (the flag alone never opens it).
+    admin_client.post("/devices/new", data=DEVICE)
+    with admin_client.application.app_context():
+        db = get_db()
+        db.execute("UPDATE device SET inspection_done = 1 WHERE id = 1")
+        db.commit()
+    move(admin_client, "inspecting")
+    move(admin_client, "ready")
+    row = row_of(admin_client)
+    assert row["status"] == "inspecting"
+    assert row["inspection_done"] == 0  # flag was synced back
+
+
+def test_ready_gate_recomputes_stale_flag_on(admin_client):
+    # Checklist rows are complete (written directly, as an import
+    # might), but the flag was never set: the gate must open.
+    from device_app import CHECKLISTS
+    admin_client.post("/devices/new", data=DEVICE)
+    with admin_client.application.app_context():
+        db = get_db()
+        for key, _ in CHECKLISTS["smartphone"]:
+            db.execute(
+                "INSERT INTO inspection (device_id, item_key, result,"
+                " checked_by) VALUES (1, ?, 'pass', 1)", (key,))
+        db.commit()
+    assert row_of(admin_client)["inspection_done"] == 0
+    move(admin_client, "inspecting")
+    move(admin_client, "ready")
+    row = row_of(admin_client)
+    assert row["status"] == "ready"
+    assert row["inspection_done"] == 1  # flag was synced
+
+
 def test_csv_formula_injection_is_neutralized(admin_client):
     admin_client.post("/devices/new",
                       data=dict(DEVICE, notes="=2+5"))
