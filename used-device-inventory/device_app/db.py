@@ -6,7 +6,7 @@ import sqlite3
 
 from flask import current_app, g
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Columns added after v1, applied by migration to existing databases.
 ADDED_COLUMNS = {
@@ -103,9 +103,20 @@ CREATE TABLE IF NOT EXISTS expense (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS device_photo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL REFERENCES device(id),
+    filename TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'other'
+        CHECK (kind IN ('front', 'back', 'damage', 'other')),
+    created_by INTEGER REFERENCES user(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_history_device ON history(device_id, id);
 CREATE INDEX IF NOT EXISTS idx_expense_device ON expense(device_id, id);
 CREATE INDEX IF NOT EXISTS idx_device_status ON device(status);
+CREATE INDEX IF NOT EXISTS idx_photo_device ON device_photo(device_id, id);
 """
 
 

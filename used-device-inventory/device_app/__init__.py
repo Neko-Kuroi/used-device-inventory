@@ -123,6 +123,34 @@ RESULTS = {"pass": "合格", "fail": "不合格", "na": "対象外"}
 EXPENSE_CATEGORIES = {"parts": "部品代", "shipping": "送料",
                       "fee": "販売手数料", "other": "その他"}
 
+# Photos (PLAN.md section 8, added 2026-11-22): fixed kinds, at most
+# 5 per device, at most 5 MB each, JPEG/PNG/WebP only. Files live
+# under instance/photos/<device_id>/; the DB keeps only the filename.
+PHOTO_KINDS = {"front": "正面", "back": "背面",
+               "damage": "傷", "other": "その他"}
+MAX_PHOTOS_PER_DEVICE = 5
+MAX_PHOTO_BYTES = 5 * 1024 * 1024
+
+
+def photo_count(db, device_id):
+    row = db.execute(
+        "SELECT COUNT(*) AS c FROM device_photo WHERE device_id = ?",
+        (device_id,)).fetchone()
+    return row["c"]
+
+
+def sniff_photo_ext(data):
+    """Identify an image by its magic bytes, not its name: with the
+    standard library only, this is the check that the content is
+    really the image format it claims to be."""
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
 
 def expense_total(db, device_id):
     row = db.execute(
@@ -184,6 +212,10 @@ def create_app(test_config=None):
     app.config.from_mapping(
         SECRET_KEY="dev-change-me",
         DATABASE=os.path.join(base, "instance", "devices.db"),
+        # One photo may be up to 5 MB; leave a little room for the
+        # form fields around it. This also caps every other request,
+        # which is fine: the remaining forms are tiny.
+        MAX_CONTENT_LENGTH=MAX_PHOTO_BYTES + 64 * 1024,
     )
     if test_config:
         app.config.update(test_config)
@@ -202,6 +234,17 @@ def create_app(test_config=None):
     app.teardown_appcontext(dbmod.close_db)
     with app.app_context():
         dbmod.init_db()
+
+    @app.errorhandler(413)
+    def too_large(_error):
+        flash("送信が大きすぎます。写真は1枚5MBまでです。")
+        # Back to the page the form was on, but only within this
+        # app: a referrer from another site is never used as the
+        # redirect target (same rule as the login "next" check).
+        ref = request.referrer or ""
+        if ref.startswith(request.host_url):
+            return redirect(ref)
+        return redirect(url_for("device_list"))
 
     @app.before_request
     def load_user():
@@ -374,6 +417,7 @@ def create_app(test_config=None):
             row = dict(d)
             row["expense_total"] = total
             row["profit"] = gross_profit(d, total)
+            row["photo_count"] = photo_count(db, d["id"])
             rows.append(row)
         return render_template(
             "list.html", devices=rows, q=q, kind=kind, status=status,
@@ -501,6 +545,9 @@ def create_app(test_config=None):
             "SELECT * FROM expense WHERE device_id = ? ORDER BY id",
             (device_id,)).fetchall()
         total = expense_total(db, device_id)
+        photos = db.execute(
+            "SELECT * FROM device_photo WHERE device_id = ? ORDER BY id",
+            (device_id,)).fetchall()
         return render_template(
             "detail.html", device=device, history=history,
             kinds=KINDS, statuses=STATUSES, imei_view=imei_view,
@@ -510,7 +557,8 @@ def create_app(test_config=None):
             expenses=expenses, expense_total=total,
             profit=gross_profit(device, total),
             planned=planned_profit(device, total),
-            expense_categories=EXPENSE_CATEGORIES)
+            expense_categories=EXPENSE_CATEGORIES,
+            photos=photos, photo_kinds=PHOTO_KINDS)
 
     @app.route("/devices/<int:device_id>/expenses", methods=["POST"])
     @login_required
@@ -561,6 +609,119 @@ def create_app(test_config=None):
              f" {row['amount']:,}円"))
         db.commit()
         flash("経費を削除しました。")
+        return redirect(url_for("device_detail", device_id=device_id))
+
+    # ---------- photos ----------
+
+    def photo_dir(device_id):
+        return os.path.join(
+            os.path.dirname(app.config["DATABASE"]), "photos",
+            str(device_id))
+
+    @app.route("/devices/<int:device_id>/photos", methods=["POST"])
+    @login_required
+    def photo_add(device_id):
+        get_device_or_404(device_id)
+        kind = request.form.get("kind") or ""
+        upload = request.files.get("photo")
+        if kind not in PHOTO_KINDS or upload is None \
+                or not upload.filename:
+            flash("写真の種別とファイルを選んでください。")
+            return redirect(url_for("device_detail", device_id=device_id))
+        db = dbmod.get_db()
+        if photo_count(db, device_id) >= MAX_PHOTOS_PER_DEVICE:
+            flash(f"写真は1台あたり{MAX_PHOTOS_PER_DEVICE}枚までです。")
+            return redirect(url_for("device_detail", device_id=device_id))
+        data = upload.read()
+        if len(data) > MAX_PHOTO_BYTES:
+            flash("写真は1枚5MBまでです。")
+            return redirect(url_for("device_detail", device_id=device_id))
+        # Both the extension and the magic bytes must agree.
+        name_ext = upload.filename.rsplit(".", 1)[-1].lower() \
+            if "." in upload.filename else ""
+        if name_ext == "jpeg":
+            name_ext = "jpg"
+        sniffed = sniff_photo_ext(data)
+        if sniffed is None or sniffed != name_ext:
+            flash("写真は JPEG / PNG / WebP のファイルだけです"
+                  "（拡張子と中身が合っている必要があります）。")
+            return redirect(url_for("device_detail", device_id=device_id))
+        import uuid
+        filename = f"{uuid.uuid4().hex}.{sniffed}"
+        os.makedirs(photo_dir(device_id), exist_ok=True)
+        path = os.path.join(photo_dir(device_id), filename)
+        # The count check above is only a fast path: two uploads at
+        # the same moment could both pass it. BEGIN IMMEDIATE takes
+        # the database write lock before the real check, so adds are
+        # serialized and the per-device limit cannot be slipped past.
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            if photo_count(db, device_id) >= MAX_PHOTOS_PER_DEVICE:
+                db.rollback()
+                flash(f"写真は1台あたり{MAX_PHOTOS_PER_DEVICE}枚までです。")
+                return redirect(
+                    url_for("device_detail", device_id=device_id))
+            with open(path, "wb") as f:
+                f.write(data)
+            db.execute(
+                "INSERT INTO device_photo (device_id, filename, kind,"
+                " created_by) VALUES (?, ?, ?, ?)",
+                (device_id, filename, kind, g.user["id"]))
+            db.execute(
+                "INSERT INTO history (device_id, user_id, action, detail)"
+                " VALUES (?, ?, 'photo', ?)",
+                (device_id, g.user["id"], f"写真追加: {PHOTO_KINDS[kind]}"))
+            db.commit()
+        except Exception:
+            # Never leave a file behind without its database row.
+            db.rollback()
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            raise
+        flash("写真を追加しました。")
+        return redirect(url_for("device_detail", device_id=device_id))
+
+    @app.route("/devices/<int:device_id>/photos/<int:photo_id>")
+    @login_required
+    def photo_view(device_id, photo_id):
+        from flask import send_from_directory
+        row = dbmod.get_db().execute(
+            "SELECT * FROM device_photo WHERE id = ? AND device_id = ?",
+            (photo_id, device_id)).fetchone()
+        if row is None:
+            abort(404)
+        resp = send_from_directory(photo_dir(device_id), row["filename"])
+        # The magic-byte check only proves the file starts like an
+        # image; tell browsers never to sniff it as anything else.
+        resp.headers["X-Content-Type-Options"] = "nosniff"
+        return resp
+
+    @app.route("/devices/<int:device_id>/photos/<int:photo_id>/delete",
+               methods=["POST"])
+    @login_required
+    def photo_delete(device_id, photo_id):
+        db = dbmod.get_db()
+        row = db.execute(
+            "SELECT * FROM device_photo WHERE id = ? AND device_id = ?",
+            (photo_id, device_id)).fetchone()
+        if row is None:
+            abort(404)
+        db.execute("DELETE FROM device_photo WHERE id = ?", (photo_id,))
+        db.execute(
+            "INSERT INTO history (device_id, user_id, action, detail)"
+            " VALUES (?, ?, 'photo', ?)",
+            (device_id, g.user["id"],
+             f"写真削除: {PHOTO_KINDS[row['kind']]}"))
+        db.commit()
+        # The file goes too; a row without its file (or a file
+        # without its row) would only confuse later checks.
+        try:
+            os.remove(os.path.join(photo_dir(device_id), row["filename"]))
+        except FileNotFoundError:
+            pass
+        flash("写真を削除しました。")
         return redirect(url_for("device_detail", device_id=device_id))
 
     @app.route("/devices/<int:device_id>/inspection",

@@ -146,4 +146,4 @@ def test_v1_database_is_migrated(tmp_path):
         cols = {r["name"] for r in db.execute("PRAGMA table_info(device)")}
         version = db.execute("PRAGMA user_version").fetchone()[0]
     assert set(ADDED_COLUMNS) <= cols
-    assert version == 4
+    assert version == 5

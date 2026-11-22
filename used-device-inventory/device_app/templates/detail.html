@@ -51,6 +51,29 @@
   <div><button type="submit">経費を追加</button></div>
 </form>
 
+<h2>写真</h2>
+{% if photos %}
+<div class="row">
+{% for p in photos %}
+<div>
+  <a href="{{ url_for('photo_view', device_id=device.id, photo_id=p.id) }}">
+    <img src="{{ url_for('photo_view', device_id=device.id, photo_id=p.id) }}" alt="{{ photo_kinds[p.kind] }}" style="max-width:180px; max-height:180px">
+  </a>
+  <p>{{ photo_kinds[p.kind] }}<br>
+  <form method="post" action="{{ url_for('photo_delete', device_id=device.id, photo_id=p.id) }}" style="display:inline">
+  <button type="submit" style="margin:0">削除</button></form></p>
+</div>
+{% endfor %}
+</div>
+{% else %}
+<p>写真はまだありません（1台あたり5枚まで、1枚5MBまで、JPEG / PNG / WebP）。</p>
+{% endif %}
+<form method="post" action="{{ url_for('photo_add', device_id=device.id) }}" enctype="multipart/form-data" class="row">
+  <div><label>種別</label><select name="kind">{% for k, label in photo_kinds.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></div>
+  <div><label>ファイル</label><input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" required></div>
+  <div><button type="submit">写真を追加</button></div>
+</form>
+
 <h2>状態の変更</h2>
 {% if next_statuses %}
 <form method="post" action="{{ url_for('device_status', device_id=device.id) }}">

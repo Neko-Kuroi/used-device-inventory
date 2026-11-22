@@ -17,7 +17,7 @@
 </form>
 <p>{{ devices|length }} 件 ／ <a href="{{ url_for('export_csv', q=q, kind=kind, status=status) }}">CSVでダウンロード（現在の絞り込み）</a></p>
 <table>
-<tr><th>ID</th><th>種別</th><th>メーカー / 機種</th><th>シリアル</th><th>IMEI</th><th>ランク</th><th>状態</th><th>販売予定価格</th><th>経費合計</th><th>粗利</th></tr>
+<tr><th>ID</th><th>種別</th><th>メーカー / 機種</th><th>シリアル</th><th>IMEI</th><th>ランク</th><th>状態</th><th>写真</th><th>販売予定価格</th><th>経費合計</th><th>粗利</th></tr>
 {% for d in devices %}
 <tr>
   <td><a href="{{ url_for('device_detail', device_id=d.id) }}">{{ d.id }}</a></td>
@@ -27,12 +27,13 @@
   <td>{{ mask_imei(d.imei) }}</td>
   <td>{{ d.condition_rank }}</td>
   <td>{{ statuses[d.status] }}</td>
+  <td>{% if d.photo_count %}写真 {{ d.photo_count }}枚{% endif %}</td>
   <td>{% if d.planned_price is not none %}{{ "{:,}".format(d.planned_price) }} 円{% endif %}</td>
   <td>{{ "{:,}".format(d.expense_total) }} 円</td>
   <td>{% if d.profit is not none %}{{ "{:,}".format(d.profit) }} 円{% else %}―{% endif %}</td>
 </tr>
 {% else %}
-<tr><td colspan="10">該当する在庫がありません。</td></tr>
+<tr><td colspan="11">該当する在庫がありません。</td></tr>
 {% endfor %}
 </table>
 {% endblock %}
