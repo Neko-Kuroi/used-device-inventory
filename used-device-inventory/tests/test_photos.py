@@ -1,6 +1,7 @@
 """Photos (PLAN.md section 8): upload/view/delete on the detail
-page, 5 per device, 5 MB each, JPEG/PNG/WebP checked by extension
-and magic bytes, history entries, photo count on the list."""
+page, 5 per device, 5 MB each, JPEG/PNG/WebP checked first by
+file-name extension and then by magic bytes, history entries,
+photo count on the list."""
 import base64
 import io
 import os
@@ -69,6 +70,41 @@ def test_rejects_non_image_and_mismatched_content(admin_client):
     upload(admin_client, data=b"just text", name="fake.png")
     upload(admin_client, data=PNG, name="wrong.jpg")
     assert photos_of(admin_client) == []
+
+
+def test_extension_is_checked_first(admin_client):
+    # Even real image content is refused when the file name does
+    # not claim a known format: the extension is the first gate.
+    admin_client.post("/devices/new", data=DEVICE)
+    upload(admin_client, data=JPG, name="photo.exe")
+    upload(admin_client, data=JPG, name="photo.txt")
+    upload(admin_client, data=JPG, name="noextension")
+    upload(admin_client, data=PNG, name="photo.gif")
+    assert photos_of(admin_client) == []
+
+
+def test_heic_name_with_jpeg_content_is_accepted(admin_client):
+    # The iPhone case: the name still says .HEIC (the library
+    # format) but the delivered content is a converted JPEG.
+    # That, and only that, may pass under a HEIC name.
+    admin_client.post("/devices/new", data=DEVICE)
+    upload(admin_client, data=JPG, name="IMG_0001.HEIC")
+    upload(admin_client, data=PNG, name="IMG_0002.heif")
+    rows = photos_of(admin_client)
+    assert len(rows) == 1
+    assert rows[0]["filename"].endswith(".jpg")
+
+
+def test_rejects_real_heic_with_its_own_message(admin_client):
+    # Unconverted HEIC content cannot be decoded with the standard
+    # library alone, so it is refused with a specific message.
+    admin_client.post("/devices/new", data=DEVICE)
+    heic = (b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00heicmif1"
+            + b"\x00" * 32)
+    upload(admin_client, data=heic, name="IMG_0002.HEIC")
+    assert photos_of(admin_client) == []
+    body = admin_client.get("/devices/1").get_data(as_text=True)
+    assert "HEIC 形式でした" in body
 
 
 def test_rejects_oversize_photo(admin_client):

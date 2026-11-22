@@ -152,6 +152,18 @@ def sniff_photo_ext(data):
     return None
 
 
+HEIC_BRANDS = {b"heic", b"heix", b"hevc", b"heim", b"heis",
+               b"mif1", b"mif2"}
+
+
+def looks_like_heic(data):
+    """HEIC/HEIF files are ISO-BMFF: a 'ftyp' box whose brand
+    names the HEIC family. They are recognized only so the user
+    gets a specific message; decoding them with the standard
+    library alone is not possible, so they stay unsupported."""
+    return data[4:8] == b"ftyp" and data[8:12] in HEIC_BRANDS
+
+
 def expense_total(db, device_id):
     row = db.execute(
         "SELECT COALESCE(SUM(amount), 0) AS t FROM expense"
@@ -628,6 +640,19 @@ def create_app(test_config=None):
                 or not upload.filename:
             flash("写真の種別とファイルを選んでください。")
             return redirect(url_for("device_detail", device_id=device_id))
+        # First the extension, then the content. The extension is
+        # the gate: only names claiming a known format come in.
+        # .heic/.heif pass the gate because an iPhone may keep
+        # that name while delivering a converted JPEG; whether it
+        # really did is decided by the content check below.
+        name_ext = upload.filename.rsplit(".", 1)[-1].lower() \
+            if "." in upload.filename else ""
+        if name_ext == "jpeg":
+            name_ext = "jpg"
+        if name_ext not in ("jpg", "png", "webp", "heic", "heif"):
+            flash("写真のファイル名は .jpg / .jpeg / .png / .webp /"
+                  " .heic / .heif のものだけです。")
+            return redirect(url_for("device_detail", device_id=device_id))
         db = dbmod.get_db()
         if photo_count(db, device_id) >= MAX_PHOTOS_PER_DEVICE:
             flash(f"写真は1台あたり{MAX_PHOTOS_PER_DEVICE}枚までです。")
@@ -636,13 +661,20 @@ def create_app(test_config=None):
         if len(data) > MAX_PHOTO_BYTES:
             flash("写真は1枚5MBまでです。")
             return redirect(url_for("device_detail", device_id=device_id))
-        # Both the extension and the magic bytes must agree.
-        name_ext = upload.filename.rsplit(".", 1)[-1].lower() \
-            if "." in upload.filename else ""
-        if name_ext == "jpeg":
-            name_ext = "jpg"
+        # Then the content: it must match what the extension
+        # claims. The one exception is a .heic/.heif name, whose
+        # content must be the JPEG an iPhone converts to on
+        # delivery. Real HEIC content gets its own message.
         sniffed = sniff_photo_ext(data)
-        if sniffed is None or sniffed != name_ext:
+        if looks_like_heic(data):
+            flash("写真が HEIC 形式でした。このプログラムでは"
+                  "扱えないので、JPEG に変換してから送ってください。")
+            return redirect(url_for("device_detail", device_id=device_id))
+        if name_ext in ("heic", "heif"):
+            accepted = sniffed == "jpg"
+        else:
+            accepted = sniffed == name_ext
+        if not accepted:
             flash("写真は JPEG / PNG / WebP のファイルだけです"
                   "（拡張子と中身が合っている必要があります）。")
             return redirect(url_for("device_detail", device_id=device_id))

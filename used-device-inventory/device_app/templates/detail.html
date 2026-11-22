@@ -70,7 +70,7 @@
 {% endif %}
 <form method="post" action="{{ url_for('photo_add', device_id=device.id) }}" enctype="multipart/form-data" class="row">
   <div><label>種別</label><select name="kind">{% for k, label in photo_kinds.items() %}<option value="{{ k }}">{{ label }}</option>{% endfor %}</select></div>
-  <div><label>ファイル</label><input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp" required></div>
+  <div><label>ファイル</label><input name="photo" type="file" accept=".jpg,.jpeg,.png,.webp,.heic,.heif" required></div>
   <div><button type="submit">写真を追加</button></div>
 </form>
 
