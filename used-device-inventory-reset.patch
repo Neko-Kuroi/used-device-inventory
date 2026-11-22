@@ -1,0 +1,203 @@
+diff --git a/used-device-inventory/HOW_TO_USE.md b/used-device-inventory/HOW_TO_USE.md
+index 6d1eecb..305e5a8 100644
+--- a/used-device-inventory/HOW_TO_USE.md
++++ b/used-device-inventory/HOW_TO_USE.md
+@@ -133,6 +133,9 @@
+   コピーしてください (写真の実物はそちらに入っています)。
+ - 一般のインターネットには公開しないでください。アクセスは
+   Tailscale 経由だけにします。
+-- パスワードを忘れたユーザーがいる場合は、管理者が「ユーザー管理」で
+-  作り直すのではなく、データベースを扱える人に相談してください
+-  (パスワードの再設定画面は今のところありません)。
++- パスワードを忘れたユーザー (管理者を含む) がいる場合は、ホストの
++  パソコンで `.venv/bin/python reset_password.py <ユーザー名>` を実行します。
++  新しいパスワードを2回入れると、作り直せます。ユーザー名が
++  分からないときは、`.venv/bin/python reset_password.py` だけで一覧が出ます。
++  (画面からの再設定は今のところありません。ホストのパソコンを
++  操作できる人だけが使える方法です。)
+diff --git a/used-device-inventory/README.md b/used-device-inventory/README.md
+index 57e2b3a..32ee623 100644
+--- a/used-device-inventory/README.md
++++ b/used-device-inventory/README.md
+@@ -50,6 +50,7 @@
+   HEIC そのものは専用の文面で断る。テストは72件
+ 
+ 既知の制限: パスワード再設定の画面はありません。
++ホストの PC で `.venv/bin/python reset_password.py <ユーザー名>` を実行すると作り直せます。
+ 
+ ## 起動方法 (試用)
+ 
+@@ -88,4 +89,4 @@ python3 -m venv .venv
+ .venv/bin/python -m pytest -q
+ ```
+ 
+-全 72 件です (Phase 1: 15件 + Phase 2: 9件 + Phase 3: 9件 + Phase 4: 8件 + レビュー修正: 17件 + 写真: 14件)。
++全 80 件です (Phase 1: 15件 + Phase 2: 9件 + Phase 3: 9件 + Phase 4: 8件 + レビュー修正: 17件 + 写真: 14件 + パスワード復旧: 8件)。
+diff --git a/used-device-inventory/reset_password.py b/used-device-inventory/reset_password.py
+new file mode 100644
+index 0000000..5583a87
+--- /dev/null
++++ b/used-device-inventory/reset_password.py
+@@ -0,0 +1,84 @@
++"""Reset a user's password from the host PC (no web screen for this).
++
++Usage (run on the machine that hosts instance/devices.db):
++
++    .venv/bin/python reset_password.py               # list users
++    .venv/bin/python reset_password.py <username>    # set a new password
++
++The new password is typed at a prompt, never on the command line, so
++it does not end up in the shell history. Only someone who can run
++programs on the host PC can use this; the web app is not involved.
++Running sessions stay logged in; the new password applies from the
++next login.
++"""
++import getpass
++import os
++import sqlite3
++import sys
++
++from werkzeug.security import generate_password_hash
++
++MIN_PASSWORD_LENGTH = 8  # same rule as the setup / user-admin screens
++DEFAULT_DB = os.path.join(
++    os.path.dirname(os.path.abspath(__file__)), "instance", "devices.db")
++
++
++def _connect(db_path):
++    # Never create an empty database by accident (e.g. a typo in the
++    # path): resetting a password only makes sense on an existing one.
++    if not os.path.exists(db_path):
++        raise ValueError(f"データベースが見つかりません: {db_path}")
++    return sqlite3.connect(db_path)
++
++
++def list_users(db_path):
++    conn = _connect(db_path)
++    try:
++        return conn.execute(
++            "SELECT username, is_admin FROM user ORDER BY id").fetchall()
++    finally:
++        conn.close()
++
++
++def reset_password(db_path, username, password):
++    if len(password) < MIN_PASSWORD_LENGTH:
++        raise ValueError(
++            f"パスワードは{MIN_PASSWORD_LENGTH}文字以上にしてください。")
++    conn = _connect(db_path)
++    try:
++        cur = conn.execute(
++            "UPDATE user SET password_hash = ? WHERE username = ?",
++            (generate_password_hash(password), username))
++        if cur.rowcount != 1:
++            conn.rollback()
++            raise ValueError(f"そのユーザーはいません: {username}")
++        conn.commit()
++    finally:
++        conn.close()
++
++
++def main(argv):
++    db_path = os.environ.get("DEVICE_DB", DEFAULT_DB)
++    try:
++        if len(argv) < 2:
++            users = list_users(db_path)
++            print("ユーザー一覧 (* は管理者):")
++            for name, is_admin in users:
++                print(f"  {'*' if is_admin else ' '} {name}")
++            print("パスワードを作り直す: .venv/bin/python reset_password.py <ユーザー名>")
++            return 0
++        username = argv[1]
++        password = getpass.getpass("新しいパスワード: ")
++        if password != getpass.getpass("もう一度: "):
++            print("2回の入力が違います。何も変更していません。")
++            return 1
++        reset_password(db_path, username, password)
++    except ValueError as e:
++        print(e)
++        return 1
++    print(f"{username} のパスワードを変更しました。")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv))
+diff --git a/used-device-inventory/tests/test_reset_password.py b/used-device-inventory/tests/test_reset_password.py
+new file mode 100644
+index 0000000..e92e23a
+--- /dev/null
++++ b/used-device-inventory/tests/test_reset_password.py
+@@ -0,0 +1,72 @@
++import os
++import sqlite3
++import sys
++
++import pytest
++
++sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
++
++import reset_password as rp
++from conftest import login, make_admin
++
++
++def test_reset_lets_user_log_in_with_new_password(app, client):
++    make_admin(client)
++    db_path = app.config["DATABASE"]
++    rp.reset_password(db_path, "admin", "brand-new-pass")
++    fresh = app.test_client()
++    assert login(fresh, "admin", "admin-pass-1").status_code == 200  # rejected
++    r = login(app.test_client(), "admin", "brand-new-pass")
++    assert r.status_code == 302
++
++
++def test_reset_changes_only_that_user(app, client):
++    make_admin(client)
++    client.post("/admin/users", data={
++        "username": "u1", "password": "user-pass-1"})
++    rp.reset_password(app.config["DATABASE"], "u1", "another-pass-9")
++    assert login(app.test_client(), "admin", "admin-pass-1").status_code == 302
++    assert login(app.test_client(), "u1", "another-pass-9").status_code == 302
++
++
++def test_short_password_rejected_and_nothing_changed(app, client):
++    make_admin(client)
++    with pytest.raises(ValueError):
++        rp.reset_password(app.config["DATABASE"], "admin", "short")
++    assert login(app.test_client(), "admin", "admin-pass-1").status_code == 302
++
++
++def test_unknown_user_is_an_error(app, client):
++    make_admin(client)
++    with pytest.raises(ValueError):
++        rp.reset_password(app.config["DATABASE"], "nobody", "long-enough-1")
++
++
++def test_missing_database_is_not_created(tmp_path):
++    path = str(tmp_path / "none.db")
++    with pytest.raises(ValueError):
++        rp.reset_password(path, "admin", "long-enough-1")
++    assert not os.path.exists(path)
++
++
++def test_list_users_shows_admin_flag(app, client):
++    make_admin(client)
++    rows = rp.list_users(app.config["DATABASE"])
++    assert [(r[0], r[1]) for r in rows] == [("admin", 1)]
++
++
++def test_main_mismatched_confirmation_changes_nothing(app, client, monkeypatch):
++    make_admin(client)
++    monkeypatch.setenv("DEVICE_DB", app.config["DATABASE"])
++    answers = iter(["new-pass-aaa", "new-pass-bbb"])
++    monkeypatch.setattr(rp.getpass, "getpass", lambda _p: next(answers))
++    assert rp.main(["reset_password.py", "admin"]) == 1
++    assert login(app.test_client(), "admin", "admin-pass-1").status_code == 302
++
++
++def test_main_success(app, client, monkeypatch):
++    make_admin(client)
++    monkeypatch.setenv("DEVICE_DB", app.config["DATABASE"])
++    monkeypatch.setattr(rp.getpass, "getpass", lambda _p: "new-pass-ok1")
++    assert rp.main(["reset_password.py", "admin"]) == 0
++    assert login(app.test_client(), "admin", "new-pass-ok1").status_code == 302

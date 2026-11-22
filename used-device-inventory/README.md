@@ -50,6 +50,7 @@
   HEIC そのものは専用の文面で断る。テストは72件
 
 既知の制限: パスワード再設定の画面はありません。
+ホストの PC で `.venv/bin/python reset_password.py <ユーザー名>` を実行すると作り直せます。
 
 ## 起動方法 (試用)
 
@@ -88,4 +89,4 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q
 ```
 
-全 72 件です (Phase 1: 15件 + Phase 2: 9件 + Phase 3: 9件 + Phase 4: 8件 + レビュー修正: 17件 + 写真: 14件)。
+全 80 件です (Phase 1: 15件 + Phase 2: 9件 + Phase 3: 9件 + Phase 4: 8件 + レビュー修正: 17件 + 写真: 14件 + パスワード復旧: 8件)。
