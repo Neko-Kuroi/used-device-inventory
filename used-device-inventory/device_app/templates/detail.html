@@ -19,7 +19,7 @@
   <tr><th>販売予定価格</th><td>{% if device.planned_price is not none %}{{ "{:,}".format(device.planned_price) }} 円{% endif %}</td>
       <th>実売</th><td>{{ device.sale_date }} / {{ device.sale_channel }} / {% if device.sale_price is not none %}{{ "{:,}".format(device.sale_price) }} 円{% endif %}</td></tr>
   <tr><th>保証期間</th><td>{% if device.warranty_days is not none %}{{ device.warranty_days }} 日{% endif %}</td>
-      <th>登録 / 更新</th><td>{{ device.created_at }} / {{ device.updated_at }}</td></tr>
+      <th>登録 / 更新</th><td>{{ device.created_at | jst }} / {{ device.updated_at | jst }}</td></tr>
   <tr><th>備考</th><td colspan="3">{{ device.notes }}</td></tr>
   <tr><th>検査</th><td>{{ inspection.done }}/{{ inspection.total }} 項目{{ '（完了）' if inspection.complete else '' }}{% if inspection.fails %} 不合格: {{ inspection.fails|join(', ') }}{% endif %}
       <a href="{{ url_for('device_inspection', device_id=device.id) }}">チェックリストを開く</a></td>
@@ -95,7 +95,7 @@
 <table>
 <tr><th>日時</th><th>操作</th><th>内容</th><th>ユーザー</th></tr>
 {% for h in history %}
-<tr><td>{{ h.created_at }}</td><td>{{ h.action }}</td><td>{{ h.detail }}</td><td>{{ h.username or '' }}</td></tr>
+<tr><td>{{ h.created_at | jst }}</td><td>{{ h.action }}</td><td>{{ h.detail }}</td><td>{{ h.username or '' }}</td></tr>
 {% else %}
 <tr><td colspan="4">履歴がありません。</td></tr>
 {% endfor %}

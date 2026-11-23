@@ -17,7 +17,7 @@
     {% for rk, rl in results.items() %}<option value="{{ rk }}" {% if row and row.result == rk %}selected{% endif %}>{{ rl }}</option>{% endfor %}
   </select></td>
   <td><input name="note_{{ key }}" value="{{ row.note if row else '' }}"></td>
-  <td>{% if row %}{{ row.checked_at }}{% endif %}</td>
+  <td>{% if row %}{{ row.checked_at | jst }}{% endif %}</td>
 </tr>
 {% endfor %}
 </table>

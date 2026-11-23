@@ -5,6 +5,7 @@ Flask + standard-library sqlite3 only.
 """
 import os
 import sqlite3
+from datetime import datetime, timedelta
 from functools import wraps
 
 from flask import (Flask, abort, flash, g, redirect, render_template,
@@ -211,6 +212,29 @@ def csv_safe(value):
     return value
 
 
+# Timestamps written by SQLite (datetime('now')) are UTC. They are stored
+# as they are (the database is shared and must not change); only the
+# display is converted to Japan time. Japan has no daylight saving, so a
+# fixed +9 hours is enough, and it needs no timezone database (the
+# standard zoneinfo needs the tzdata package on Windows).
+JST_OFFSET = timedelta(hours=9)
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def to_jst(value):
+    """UTC timestamp text -> the same form in Japan time.
+
+    Empty values give "". A value that is not in the timestamp form is
+    returned unchanged: a display helper must never break a page."""
+    if not value:
+        return ""
+    try:
+        utc = datetime.strptime(value, TIMESTAMP_FORMAT)
+    except (TypeError, ValueError):
+        return value
+    return (utc + JST_OFFSET).strftime(TIMESTAMP_FORMAT)
+
+
 def mask_imei(imei):
     """Show only the last 4 digits; full IMEI is admin-only."""
     if not imei:
@@ -379,8 +403,12 @@ def create_app(test_config=None):
             return None, "シリアル番号は必須です。"
         if values["imei"]:
             digits = values["imei"].replace(" ", "").replace("-", "")
-            if not digits.isdigit() or len(digits) != 15:
-                return None, "IMEI は15桁の数字で入れてください（判別できない場合は空欄のまま）。"
+            # str.isdigit() alone also accepts full-width and other
+            # Unicode digits (e.g. "１２３…"), which would be stored as
+            # they are. Only ASCII 0-9 is an IMEI.
+            if (not digits.isascii() or not digits.isdigit()
+                    or len(digits) != 15):
+                return None, "IMEI は15桁の半角数字で入れてください（判別できない場合は空欄のまま）。"
             values["imei"] = digits
         if values["network_restriction"] not in NETWORK_RESTRICTION:
             return None, "ネットワーク利用制限の値が正しくありません。"
@@ -469,7 +497,8 @@ def create_app(test_config=None):
                 d["sale_date"], d["sale_channel"],
                 d["sale_price"] if d["sale_price"] is not None else "",
                 total, profit if profit is not None else "",
-                d["notes"], d["created_at"], d["updated_at"]]])
+                d["notes"], to_jst(d["created_at"]),
+                to_jst(d["updated_at"])]])
         # utf-8-sig so Excel opens the Japanese text correctly.
         body = buf.getvalue().encode("utf-8-sig")
         return Response(body, content_type="text/csv; charset=utf-8",
@@ -1014,4 +1043,5 @@ def create_app(test_config=None):
         return render_template("users.html", users=users)
 
     app.jinja_env.globals.update(kinds=KINDS, statuses=STATUSES)
+    app.jinja_env.filters["jst"] = to_jst
     return app
