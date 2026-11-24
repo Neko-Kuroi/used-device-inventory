@@ -150,3 +150,16 @@ def test_csv_headers_and_user_entered_dates_are_unchanged(admin_client, app):
     assert header[-2:] == ["登録日時", "更新日時"]     # headers as before
     assert row[header.index("仕入れ日")] == "2026-11-01"
     assert row[header.index("データ消去日")] == "2026-11-02"
+
+
+@pytest.mark.parametrize("value", [
+    "9999-12-31 15:00:00", "9999-12-31 23:59:59",
+])
+def test_result_past_year_9999_is_returned_unchanged(value):
+    # +9 hours would overflow datetime; this used to raise OverflowError
+    # (a 500 page). The Go version returns such a value unchanged too.
+    assert to_jst(value) == value
+
+
+def test_last_convertible_second_of_year_9999():
+    assert to_jst("9999-12-31 14:59:59") == "9999-12-31 23:59:59"

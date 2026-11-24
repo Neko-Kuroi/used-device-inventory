@@ -1,0 +1,48 @@
+diff --git a/used-device-inventory/device_app/__init__.py b/used-device-inventory/device_app/__init__.py
+index 533ced0..a23b654 100644
+--- a/used-device-inventory/device_app/__init__.py
++++ b/used-device-inventory/device_app/__init__.py
+@@ -241,8 +241,8 @@ def to_jst(value):
+     """UTC timestamp text -> the same form in Japan time.
+ 
+     Empty values give "". Only the exact timestamp form is
+-    converted; anything else is returned unchanged, so a display
+-    helper never breaks a page. The result is formatted digit by
++    converted; anything else (including a result past year 9999) is
++    returned unchanged, so a display helper never breaks a page. The result is formatted digit by
+     digit (not strftime) so the year is always zero-padded to 4,
+     on every platform."""
+     if not value:
+@@ -253,7 +253,10 @@ def to_jst(value):
+         utc = datetime.strptime(value, TIMESTAMP_FORMAT)
+     except (TypeError, ValueError):
+         return value
+-    jst = utc + JST_OFFSET
++    try:
++        jst = utc + JST_OFFSET
++    except OverflowError:   # +9 hours would pass year 9999
++        return value
+     return (f"{jst.year:04d}-{jst.month:02d}-{jst.day:02d} "
+             f"{jst.hour:02d}:{jst.minute:02d}:{jst.second:02d}")
+ 
+diff --git a/used-device-inventory/tests/test_jst.py b/used-device-inventory/tests/test_jst.py
+index b2db08f..329baa8 100644
+--- a/used-device-inventory/tests/test_jst.py
++++ b/used-device-inventory/tests/test_jst.py
+@@ -150,3 +150,16 @@ def test_csv_headers_and_user_entered_dates_are_unchanged(admin_client, app):
+     assert header[-2:] == ["登録日時", "更新日時"]     # headers as before
+     assert row[header.index("仕入れ日")] == "2026-11-01"
+     assert row[header.index("データ消去日")] == "2026-11-02"
++
++
++@pytest.mark.parametrize("value", [
++    "9999-12-31 15:00:00", "9999-12-31 23:59:59",
++])
++def test_result_past_year_9999_is_returned_unchanged(value):
++    # +9 hours would overflow datetime; this used to raise OverflowError
++    # (a 500 page). The Go version returns such a value unchanged too.
++    assert to_jst(value) == value
++
++
++def test_last_convertible_second_of_year_9999():
++    assert to_jst("9999-12-31 14:59:59") == "9999-12-31 23:59:59"

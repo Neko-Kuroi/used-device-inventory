@@ -241,8 +241,8 @@ def to_jst(value):
     """UTC timestamp text -> the same form in Japan time.
 
     Empty values give "". Only the exact timestamp form is
-    converted; anything else is returned unchanged, so a display
-    helper never breaks a page. The result is formatted digit by
+    converted; anything else (including a result past year 9999) is
+    returned unchanged, so a display helper never breaks a page. The result is formatted digit by
     digit (not strftime) so the year is always zero-padded to 4,
     on every platform."""
     if not value:
@@ -253,7 +253,10 @@ def to_jst(value):
         utc = datetime.strptime(value, TIMESTAMP_FORMAT)
     except (TypeError, ValueError):
         return value
-    jst = utc + JST_OFFSET
+    try:
+        jst = utc + JST_OFFSET
+    except OverflowError:   # +9 hours would pass year 9999
+        return value
     return (f"{jst.year:04d}-{jst.month:02d}-{jst.day:02d} "
             f"{jst.hour:02d}:{jst.minute:02d}:{jst.second:02d}")
 
