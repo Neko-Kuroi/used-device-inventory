@@ -28,6 +28,34 @@ def test_unreadable_values_are_returned_unchanged(value):
     assert to_jst(value) == value
 
 
+# The strict form rule (2026-11-24): only the exact zero-padded
+# 19-character form converts. strptime alone would accept some of
+# these; the gate is what keeps the Python and Go versions in
+# agreement on every input.
+@pytest.mark.parametrize("value", [
+    "2026-11-21 15:13:26.5",   # fractional seconds
+    "2026-1-1 1:2:3",          # nothing padded
+    "2026-1-01 01:02:03",      # month unpadded
+    "2026-11-1 1:02:03",       # day and hour unpadded
+    "2028-2-29 15:00:00",      # a real leap day, but unpadded
+    "0000-01-01 00:00:00",     # there is no year zero
+    "2026-02-30 00:00:00",     # a day that does not exist
+    "2026-11-21 24:00:00",     # hour out of range
+    "2026-11-21 15:13:60",     # second out of range
+    "2026-11-21 15:13:26 ",    # trailing space
+    "999-01-01 01:02:03",      # 3-digit year
+    "02026-11-21 15:13:26",    # 5-digit year
+])
+def test_non_strict_forms_are_returned_unchanged(value):
+    assert to_jst(value) == value
+
+
+def test_year_under_1000_is_zero_padded_in_the_output():
+    # strftime would print "1-01-01 ..." on some platforms; the
+    # output form is fixed at 4 digits.
+    assert to_jst("0001-01-01 00:00:00") == "0001-01-01 09:00:00"
+
+
 def test_jst_filter_is_registered(app):
     assert app.jinja_env.filters["jst"] is to_jst
     out = app.jinja_env.from_string("{{ x | jst }}").render(

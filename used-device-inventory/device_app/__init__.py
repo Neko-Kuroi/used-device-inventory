@@ -221,18 +221,41 @@ JST_OFFSET = timedelta(hours=9)
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def _is_timestamp_form(value):
+    """True only for the exact YYYY-MM-DD HH:MM:SS form: 19
+    characters, zero-padded, ASCII digits. The strictness is
+    deliberate (decided 2026-11-24): strptime alone would also
+    accept unpadded fields like 2026-1-1 1:2:3, and the Go version
+    follows this same rule, so the two never disagree."""
+    if len(value) != 19:
+        return False
+    if (value[4] != "-" or value[7] != "-" or value[10] != " "
+            or value[13] != ":" or value[16] != ":"):
+        return False
+    digits = (value[:4] + value[5:7] + value[8:10] + value[11:13]
+              + value[14:16] + value[17:])
+    return digits.isascii() and digits.isdigit()
+
+
 def to_jst(value):
     """UTC timestamp text -> the same form in Japan time.
 
-    Empty values give "". A value that is not in the timestamp form is
-    returned unchanged: a display helper must never break a page."""
+    Empty values give "". Only the exact timestamp form is
+    converted; anything else is returned unchanged, so a display
+    helper never breaks a page. The result is formatted digit by
+    digit (not strftime) so the year is always zero-padded to 4,
+    on every platform."""
     if not value:
         return ""
+    if not isinstance(value, str) or not _is_timestamp_form(value):
+        return value
     try:
         utc = datetime.strptime(value, TIMESTAMP_FORMAT)
     except (TypeError, ValueError):
         return value
-    return (utc + JST_OFFSET).strftime(TIMESTAMP_FORMAT)
+    jst = utc + JST_OFFSET
+    return (f"{jst.year:04d}-{jst.month:02d}-{jst.day:02d} "
+            f"{jst.hour:02d}:{jst.minute:02d}:{jst.second:02d}")
 
 
 def mask_imei(imei):

@@ -1,0 +1,88 @@
+diff --git a/used-device-inventory/device_app/__init__.py b/used-device-inventory/device_app/__init__.py
+index 35e3979..533ced0 100644
+--- a/used-device-inventory/device_app/__init__.py
++++ b/used-device-inventory/device_app/__init__.py
+@@ -221,18 +221,41 @@ JST_OFFSET = timedelta(hours=9)
+ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+ 
+ 
++def _is_timestamp_form(value):
++    """True only for the exact YYYY-MM-DD HH:MM:SS form: 19
++    characters, zero-padded, ASCII digits. The strictness is
++    deliberate (decided 2026-11-24): strptime alone would also
++    accept unpadded fields like 2026-1-1 1:2:3, and the Go version
++    follows this same rule, so the two never disagree."""
++    if len(value) != 19:
++        return False
++    if (value[4] != "-" or value[7] != "-" or value[10] != " "
++            or value[13] != ":" or value[16] != ":"):
++        return False
++    digits = (value[:4] + value[5:7] + value[8:10] + value[11:13]
++              + value[14:16] + value[17:])
++    return digits.isascii() and digits.isdigit()
++
++
+ def to_jst(value):
+     """UTC timestamp text -> the same form in Japan time.
+ 
+-    Empty values give "". A value that is not in the timestamp form is
+-    returned unchanged: a display helper must never break a page."""
++    Empty values give "". Only the exact timestamp form is
++    converted; anything else is returned unchanged, so a display
++    helper never breaks a page. The result is formatted digit by
++    digit (not strftime) so the year is always zero-padded to 4,
++    on every platform."""
+     if not value:
+         return ""
++    if not isinstance(value, str) or not _is_timestamp_form(value):
++        return value
+     try:
+         utc = datetime.strptime(value, TIMESTAMP_FORMAT)
+     except (TypeError, ValueError):
+         return value
+-    return (utc + JST_OFFSET).strftime(TIMESTAMP_FORMAT)
++    jst = utc + JST_OFFSET
++    return (f"{jst.year:04d}-{jst.month:02d}-{jst.day:02d} "
++            f"{jst.hour:02d}:{jst.minute:02d}:{jst.second:02d}")
+ 
+ 
+ def mask_imei(imei):
+diff --git a/used-device-inventory/tests/test_jst.py b/used-device-inventory/tests/test_jst.py
+index ce2faed..b2db08f 100644
+--- a/used-device-inventory/tests/test_jst.py
++++ b/used-device-inventory/tests/test_jst.py
+@@ -28,6 +28,34 @@ def test_unreadable_values_are_returned_unchanged(value):
+     assert to_jst(value) == value
+ 
+ 
++# The strict form rule (2026-11-24): only the exact zero-padded
++# 19-character form converts. strptime alone would accept some of
++# these; the gate is what keeps the Python and Go versions in
++# agreement on every input.
++@pytest.mark.parametrize("value", [
++    "2026-11-21 15:13:26.5",   # fractional seconds
++    "2026-1-1 1:2:3",          # nothing padded
++    "2026-1-01 01:02:03",      # month unpadded
++    "2026-11-1 1:02:03",       # day and hour unpadded
++    "2028-2-29 15:00:00",      # a real leap day, but unpadded
++    "0000-01-01 00:00:00",     # there is no year zero
++    "2026-02-30 00:00:00",     # a day that does not exist
++    "2026-11-21 24:00:00",     # hour out of range
++    "2026-11-21 15:13:60",     # second out of range
++    "2026-11-21 15:13:26 ",    # trailing space
++    "999-01-01 01:02:03",      # 3-digit year
++    "02026-11-21 15:13:26",    # 5-digit year
++])
++def test_non_strict_forms_are_returned_unchanged(value):
++    assert to_jst(value) == value
++
++
++def test_year_under_1000_is_zero_padded_in_the_output():
++    # strftime would print "1-01-01 ..." on some platforms; the
++    # output form is fixed at 4 digits.
++    assert to_jst("0001-01-01 00:00:00") == "0001-01-01 09:00:00"
++
++
+ def test_jst_filter_is_registered(app):
+     assert app.jinja_env.filters["jst"] is to_jst
+     out = app.jinja_env.from_string("{{ x | jst }}").render(
